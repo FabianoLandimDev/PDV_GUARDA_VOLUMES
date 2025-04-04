@@ -8,40 +8,13 @@ from kivy.uix.popup import Popup
 from kivy.clock import Clock
 from datetime import datetime
 import sqlite3
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-#
-#
-#
-# Nome_do _programa: PDV_GUARDA_VOLUMES
-#
-# site:https://github.com/FabianoLandimDev/PDV_GUARDA_VOLUMES.git
-#
-# Autor: Fabiano Landim <landimfabiano01@gmail.com>
-#
-# Manutenção: Fabiano Landim <landimfabiano01@gmail.com>
-#
-# ESCOPO:
-# O Programa consiste em um Ponto de Venda (PDV), para utilização do colaboradores de uma Empresa específica, podendo ser adaptado para qualquer Empresa, modificando as linhas do código, estou utilizando a bilbioteca Kivy, para uma melhor experiência gráfica.
-#
-# Histórico:
-#
-# v1.0.0_2025-04-02, Fabiano Landim:
-# - Versão Inicial do Programa.
-#
-#
-##############################################################################################################################################################################
-#
-#
-# Configuração do Banco de Dados...
 
+# Configuração do Banco de Dados
 def setup_database():
     conn = sqlite3.connect('pdv_guarda_volumes.db')
     cursor = conn.cursor()
 
-    # Tabela para operadores...
-
+    # Tabela para operadores
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS operadores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,8 +24,7 @@ def setup_database():
         )
     ''')
 
-    # Tabela para clientes...
-
+    # Tabela para clientes
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS clientes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,15 +39,18 @@ def setup_database():
         )
     ''')
 
-    # Adicionar a coluna "operador" se ela não existir...
+    # Tabela para logs de operadores
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS logs_operadores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operador TEXT NOT NULL,
+            horario_entrada TEXT NOT NULL,
+            total_vendas REAL NOT NULL,
+            horario_saida TEXT NOT NULL
+        )
+    ''')
 
-    try:
-        cursor.execute("ALTER TABLE clientes ADD COLUMN operador TEXT")
-    except sqlite3.OperationalError:
-        pass  # Coluna já existe
-
-    # Inserir o administrador padrão (se ainda não existir)...
-
+    # Inserir o administrador padrão (se ainda não existir)
     cursor.execute("SELECT * FROM operadores WHERE nome='admin'")
     if not cursor.fetchone():
         cursor.execute("INSERT INTO operadores (nome, senha, email) VALUES (?, ?, ?)", 
@@ -84,232 +59,19 @@ def setup_database():
     conn.commit()
     conn.close()
 
-# Função para enviar e-mail via Gmail...
-
-def enviar_email(destinatario, corpo_email):
+# Função para registrar log de operador
+def registrar_log_operador(operador, horario_entrada, total_vendas, horario_saida):
     try:
-        # Configurações do remetente...
-
-        remetente = "landimfabiano01@gmail.com"
-        senha_app = "qnvczfebxisvmtjo"
-
-        # Validar parâmetros...
-
-        if not destinatario or not corpo_email:
-            return "Erro: Destinatário ou corpo do e-mail inválido."
-
-        # Criar a mensagem...
-
-        msg = MIMEMultipart()
-        msg['From'] = remetente
-        msg['To'] = destinatario
-        msg['Subject'] = "Relatório de Fechamento de Caixa"
-        msg.attach(MIMEText(corpo_email, 'plain'))
-
-        # Conectar ao servidor SMTP do Gmail...
-
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()  # Habilitar TLS
-        server.login(remetente, senha_app)
-
-        # Enviar o e-mail...
-
-        server.sendmail(remetente, destinatario, msg.as_string())
-        server.quit()
-
-        return True
-    except smtplib.SMTPAuthenticationError:
-        return "Erro: Falha na autenticação. Verifique seu e-mail e senha de app."
-    except smtplib.SMTPConnectError:
-        return "Erro: Não foi possível conectar ao servidor SMTP."
+        conn = sqlite3.connect('pdv_guarda_volumes.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO logs_operadores (operador, horario_entrada, total_vendas, horario_saida)
+            VALUES (?, ?, ?, ?)
+        ''', (operador, horario_entrada, total_vendas, horario_saida))
+        conn.commit()
+        conn.close()
     except Exception as e:
-        return f"Erro inesperado: {str(e)}"
-
-# Tela de Login do Administrador
-class AdminLoginScreen(Screen):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.layout = BoxLayout(orientation='vertical', padding=50, spacing=10)
-
-        # Título...
-
-        self.title_label = Label(text="LOGIN DE ADMINISTRADOR", font_size=24, size_hint_y=None, height=50)
-        self.layout.add_widget(self.title_label)
-
-        # Campo Senha...
-
-        self.senha_input = TextInput(hint_text="Senha do Admin", password=True, multiline=False, size_hint_y=None, height=40)
-        self.layout.add_widget(self.senha_input)
-
-        # Botão de Login...
-
-        self.login_button = Button(text="Login como Admin", size_hint_y=None, height=50)
-        self.login_button.bind(on_press=self.admin_login)
-        self.layout.add_widget(self.login_button)
-
-        self.add_widget(self.layout)
-
-    def admin_login(self, instance):
-        senha_admin = self.senha_input.text.strip()
-        if senha_admin == "$148015%":  # Senha fixa para o admin
-            self.manager.current = "admin_screen"
-        else:
-            self.show_popup("Erro", "Senha de administrador incorreta!")
-
-    def show_popup(self, title, message):
-        popup_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        popup_label = Label(text=message, font_size=18)
-        popup_button = Button(text="OK", size_hint=(1, 0.5))
-        popup_layout.add_widget(popup_label)
-        popup_layout.add_widget(popup_button)
-
-        popup = Popup(title=title, content=popup_layout, size_hint=(0.8, 0.4))
-        popup_button.bind(on_press=popup.dismiss)
-        popup.open()
-
-# Tela de Administração
-class AdminScreen(Screen):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.layout = BoxLayout(orientation='vertical', padding=50, spacing=10)
-
-        # Título...
-
-        self.title_label = Label(text="ÁREA DE ADMINISTRAÇÃO", font_size=24, size_hint_y=None, height=50)
-        self.layout.add_widget(self.title_label)
-
-        # Campo Novo Operador...
-
-        self.novo_operador_input = TextInput(hint_text="Novo Operador", multiline=False, size_hint_y=None, height=40)
-        self.layout.add_widget(self.novo_operador_input)
-
-        # Campo Nova Senha...
-
-        self.nova_senha_input = TextInput(hint_text="Nova Senha", password=True, multiline=False, size_hint_y=None, height=40)
-        self.layout.add_widget(self.nova_senha_input)
-
-        # Campo E-mail...
-
-        self.email_input = TextInput(hint_text="E-mail", multiline=False, size_hint_y=None, height=40)
-        self.layout.add_widget(self.email_input)
-
-        # Botão Cadastrar...
-
-        self.cadastrar_button = Button(text="Cadastrar Novo Operador", size_hint_y=None, height=50)
-        self.cadastrar_button.bind(on_press=self.cadastrar_operador)
-        self.layout.add_widget(self.cadastrar_button)
-
-        # Lista de Operadores...
-
-        self.operadores_label = Label(text="Operadores Cadastrados:", font_size=16, size_hint_y=None, height=50)
-        self.layout.add_widget(self.operadores_label)
-
-        self.lista_operadores = Label(text="", font_size=14, size_hint_y=None, height=100)
-        self.layout.add_widget(self.lista_operadores)
-
-        # Campo para Excluir Operador...
-
-        self.excluir_operador_input = TextInput(hint_text="Nome do Operador para Excluir", multiline=False, size_hint_y=None, height=40)
-        self.layout.add_widget(self.excluir_operador_input)
-
-        # Botão Excluir...
-
-        self.excluir_button = Button(text="Excluir Operador", size_hint_y=None, height=50)
-        self.excluir_button.bind(on_press=self.excluir_operador)
-        self.layout.add_widget(self.excluir_button)
-
-        # Botão Voltar...
-
-        self.voltar_button = Button(text="Voltar ao Login", size_hint_y=None, height=50)
-        self.voltar_button.bind(on_press=self.voltar_login)
-        self.layout.add_widget(self.voltar_button)
-
-        self.add_widget(self.layout)
-
-    def cadastrar_operador(self, instance):
-        operador = self.novo_operador_input.text.strip()
-        senha = self.nova_senha_input.text.strip()
-        email = self.email_input.text.strip()
-
-        if not operador or not senha or not email:
-            self.show_popup("Erro", "Preencha todos os campos!")
-            return
-
-        try:
-            conn = sqlite3.connect('pdv_guarda_volumes.db')
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO operadores (nome, senha, email) VALUES (?, ?, ?)", (operador, senha, email))
-            conn.commit()
-            conn.close()
-            self.show_popup("Sucesso", "Operador cadastrado com sucesso!")
-            self.novo_operador_input.text = ""
-            self.nova_senha_input.text = ""
-            self.email_input.text = ""
-            self.atualizar_lista_operadores()
-        except sqlite3.IntegrityError:
-            self.show_popup("Erro", "Operador já existe!")
-
-    def excluir_operador(self, instance):
-        operador = self.excluir_operador_input.text.strip()
-
-        if not operador:
-            self.show_popup("Erro", "Informe o nome do operador a ser excluído!")
-            return
-
-        try:
-            conn = sqlite3.connect('pdv_guarda_volumes.db')
-            cursor = conn.cursor()
-            #
-            # Verificar se o operador tem registros associados
-            #
-            cursor.execute("SELECT COUNT(*) FROM clientes WHERE operador=?", (operador,))
-            count = cursor.fetchone()[0]
-            if count > 0:
-                self.show_popup("Erro", f"Operador '{operador}' possui registros de clientes e não pode ser excluído!")
-                conn.close()
-                return
-            #
-            # Excluir o operador
-            #
-            cursor.execute("DELETE FROM operadores WHERE nome=?", (operador,))
-            conn.commit()
-            conn.close()
-
-            if cursor.rowcount > 0:
-                self.show_popup("Sucesso", f"Operador '{operador}' excluído com sucesso!")
-                self.excluir_operador_input.text = ""
-                self.atualizar_lista_operadores()
-            else:
-                self.show_popup("Erro", "Operador não encontrado!")
-        except Exception as e:
-            self.show_popup("Erro", f"Erro inesperado: {str(e)}")
-
-    def atualizar_lista_operadores(self):
-        try:
-            conn = sqlite3.connect('pdv_guarda_volumes.db')
-            cursor = conn.cursor()
-            cursor.execute("SELECT nome FROM operadores")
-            operadores = cursor.fetchall()
-            conn.close()
-
-            lista = "\n".join([op[0] for op in operadores])
-            self.lista_operadores.text = lista
-        except Exception as e:
-            self.show_popup("Erro", f"Erro ao listar operadores: {str(e)}")
-
-    def voltar_login(self, instance):
-        self.manager.current = "login_screen"
-
-    def show_popup(self, title, message):
-        popup_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        popup_label = Label(text=message, font_size=18)
-        popup_button = Button(text="OK", size_hint=(1, 0.5))
-        popup_layout.add_widget(popup_label)
-        popup_layout.add_widget(popup_button)
-
-        popup = Popup(title=title, content=popup_layout, size_hint=(0.8, 0.4))
-        popup_button.bind(on_press=popup.dismiss)
-        popup.open()
+        print(f"Erro ao registrar log de operador: {str(e)}")
 
 # Tela de Login
 class LoginScreen(Screen):
@@ -359,6 +121,7 @@ class LoginScreen(Screen):
             if result:
                 pdv_screen = self.manager.get_screen("pdv_screen")
                 pdv_screen.operador = operador
+                pdv_screen.horario_login = datetime.now().strftime("%d/%m/%Y %H:%M:%S")  # Salvar horário de login
                 self.manager.current = "pdv_screen"
             else:
                 self.show_popup("Erro", "Operador ou senha incorretos!")
@@ -379,25 +142,149 @@ class LoginScreen(Screen):
         popup_button.bind(on_press=popup.dismiss)
         popup.open()
 
+# Tela de Login do Administrador
+class AdminLoginScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = BoxLayout(orientation='vertical', padding=50, spacing=10)
+
+        # Título
+        self.title_label = Label(text="LOGIN DE ADMINISTRADOR", font_size=24, size_hint_y=None, height=50)
+        self.layout.add_widget(self.title_label)
+
+        # Campo Senha
+        self.senha_input = TextInput(hint_text="Senha do Admin", password=True, multiline=False, size_hint_y=None, height=40)
+        self.layout.add_widget(self.senha_input)
+
+        # Botão de Login
+        self.login_button = Button(text="Login como Admin", size_hint_y=None, height=50)
+        self.login_button.bind(on_press=self.admin_login)
+        self.layout.add_widget(self.login_button)
+
+        self.add_widget(self.layout)
+
+    def admin_login(self, instance):
+        senha_admin = self.senha_input.text.strip()
+        if senha_admin == "$148015%":  # Senha fixa para o admin
+            self.manager.current = "admin_screen"
+        else:
+            self.show_popup("Erro", "Senha de administrador incorreta!")
+
+    def show_popup(self, title, message):
+        popup_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        popup_label = Label(text=message, font_size=18)
+        popup_button = Button(text="OK", size_hint=(1, 0.5))
+        popup_layout.add_widget(popup_label)
+        popup_layout.add_widget(popup_button)
+
+        popup = Popup(title=title, content=popup_layout, size_hint=(0.8, 0.4))
+        popup_button.bind(on_press=popup.dismiss)
+        popup.open()
+
+# Tela de Administração
+class AdminScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = BoxLayout(orientation='vertical', padding=50, spacing=10)
+
+        # Título
+        self.title_label = Label(text="ÁREA DE ADMINISTRAÇÃO", font_size=24, size_hint_y=None, height=50)
+        self.layout.add_widget(self.title_label)
+
+        # Campo Novo Operador
+        self.novo_operador_input = TextInput(hint_text="Novo Operador", multiline=False, size_hint_y=None, height=40)
+        self.layout.add_widget(self.novo_operador_input)
+
+        # Campo Nova Senha
+        self.nova_senha_input = TextInput(hint_text="Nova Senha", password=True, multiline=False, size_hint_y=None, height=40)
+        self.layout.add_widget(self.nova_senha_input)
+
+        # Botão Cadastrar
+        self.cadastrar_button = Button(text="Cadastrar Novo Operador", size_hint_y=None, height=50)
+        self.cadastrar_button.bind(on_press=self.cadastrar_operador)
+        self.layout.add_widget(self.cadastrar_button)
+
+        # Lista de Operadores
+        self.operadores_label = Label(text="Operadores Cadastrados:", font_size=16, size_hint_y=None, height=50)
+        self.layout.add_widget(self.operadores_label)
+        self.lista_operadores = Label(text="", font_size=14, size_hint_y=None, height=100)
+        self.layout.add_widget(self.lista_operadores)
+
+        # Botão Voltar
+        self.voltar_button = Button(text="Voltar ao Login", size_hint_y=None, height=50)
+        self.voltar_button.bind(on_press=self.voltar_login)
+        self.layout.add_widget(self.voltar_button)
+
+        self.add_widget(self.layout)
+
+    def cadastrar_operador(self, instance):
+        operador = self.novo_operador_input.text.strip()
+        senha = self.nova_senha_input.text.strip()
+
+        if not operador or not senha:
+            self.show_popup("Erro", "Preencha todos os campos!")
+            return
+
+        try:
+            conn = sqlite3.connect('pdv_guarda_volumes.db')
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO operadores (nome, senha, email) VALUES (?, ?, ?)", 
+                           (operador, senha, "email@example.com"))  # Adicione um e-mail padrão
+            conn.commit()
+            conn.close()
+            self.show_popup("Sucesso", "Operador cadastrado com sucesso!")
+            self.novo_operador_input.text = ""
+            self.nova_senha_input.text = ""
+            self.atualizar_lista_operadores()
+        except sqlite3.IntegrityError:
+            self.show_popup("Erro", "Operador já existe!")
+
+    def atualizar_lista_operadores(self):
+        try:
+            conn = sqlite3.connect('pdv_guarda_volumes.db')
+            cursor = conn.cursor()
+            cursor.execute("SELECT nome FROM operadores")
+            operadores = cursor.fetchall()
+            conn.close()
+            lista = "\n".join([op[0] for op in operadores])
+            self.lista_operadores.text = lista
+        except Exception as e:
+            self.show_popup("Erro", f"Erro ao listar operadores: {str(e)}")
+
+    def voltar_login(self, instance):
+        self.manager.current = "login_screen"
+
+    def show_popup(self, title, message):
+        popup_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        popup_label = Label(text=message, font_size=18)
+        popup_button = Button(text="OK", size_hint=(1, 0.5))
+        popup_layout.add_widget(popup_label)
+        popup_layout.add_widget(popup_button)
+
+        popup = Popup(title=title, content=popup_layout, size_hint=(0.8, 0.4))
+        popup_button.bind(on_press=popup.dismiss)
+        popup.open()
+
 # Tela do PDV
 class PDVScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.operador = ""
+        self.horario_login = ""
         self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
 
         # Barra Superior
         self.header_layout = BoxLayout(size_hint_y=None, height=50)
-        self.data_hora_label = Label(text="", color=(1, 0.5, 0, 1))
-        self.nome_operador_label = Label(text=f"Operador: {self.operador}", color=(1, 1, 1, 1))
-        self.titulo_label = Label(text="GUARDA VOLUMES AMD SERVICES", color=(0, 0.5, 0.5, 0.9))
+        self.data_hora_label = Label(text="", color=(1, 0.5, 0, 1))  # Laranja escuro
+        self.nome_operador_label = Label(text=f"Operador: {self.operador}", color=(1, 1, 1, 1))  # Branco gelo
+        self.titulo_label = Label(text="GUARDA VOLUMES AMD SERVICES", color=(0, 0, 0.5, 1))  # Azul aeronáutico
         self.header_layout.add_widget(self.data_hora_label)
         self.header_layout.add_widget(self.nome_operador_label)
         self.header_layout.add_widget(self.titulo_label)
         self.layout.add_widget(self.header_layout)
 
         # Subtítulo
-        self.subtitulo_label = Label(text="CADASTRO DE CLIENTE", font_size=36, size_hint_y=None, height=30)
+        self.subtitulo_label = Label(text="CADASTRO DE CLIENTE", font_size=18, size_hint_y=None, height=30)
         self.layout.add_widget(self.subtitulo_label)
 
         # Formulário
@@ -418,19 +305,22 @@ class PDVScreen(Screen):
         self.botoes_layout = BoxLayout(spacing=10, size_hint_y=None, height=50)
         self.calcular_button = Button(text="Calcular Valor")
         self.cadastrar_button = Button(text="Cadastrar Cliente")
-        self.limpar_button = Button(text="Limpar Formulário")
+        self.limpar_button = Button(text="Limpar Tela")
         self.imprimir_button = Button(text="Imprimir Ticket")
-        self.fechamento_caixa_button = Button(text="Fechamento de Caixa")
+        self.fechamento_caixa_button = Button(text="Fechamento")
+        self.logout_button = Button(text="Logout")
         self.calcular_button.bind(on_press=self.calcular_valor)
         self.cadastrar_button.bind(on_press=self.cadastrar_cliente)
         self.limpar_button.bind(on_press=self.limpar_formulario)
         self.imprimir_button.bind(on_press=self.imprimir_ticket)
         self.fechamento_caixa_button.bind(on_press=self.fechamento_caixa)
+        self.logout_button.bind(on_press=self.logout)
         self.botoes_layout.add_widget(self.calcular_button)
         self.botoes_layout.add_widget(self.cadastrar_button)
         self.botoes_layout.add_widget(self.limpar_button)
         self.botoes_layout.add_widget(self.imprimir_button)
         self.botoes_layout.add_widget(self.fechamento_caixa_button)
+        self.botoes_layout.add_widget(self.logout_button)
         self.layout.add_widget(self.botoes_layout)
 
         self.add_widget(self.layout)
@@ -490,10 +380,60 @@ class PDVScreen(Screen):
         self.valor_label.text = "Valor: R$0.00"
 
     def imprimir_ticket(self, instance):
-        self.show_popup("Impressão de Ticket", "Ticket impresso com sucesso!")
+        conn = sqlite3.connect('pdv_guarda_volumes.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT MAX(id) FROM clientes WHERE operador=?", (self.operador,))
+        ultimo_id = cursor.fetchone()[0]
+        conn.close()
+
+        if not ultimo_id:
+            self.show_popup("Erro", "Nenhum cliente encontrado para imprimir o ticket!")
+            return
+
+        ticket = f"""
+        TICKET DE SERVIÇO
+        -----------------
+        ID do Cliente: {ultimo_id}
+        Data e Hora: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}
+        Nome: {self.nome_cliente_input.text.strip()}
+        RG: {self.rg_input.text.strip()}
+        Telefone: {self.telefone_input.text.strip()}
+        Quantidade de Volumes: {self.quantidade_volumes_input.text.strip()}
+        Valor Pago: {self.valor_label.text}
+        -----------------
+        Obrigado por utilizar nossos serviços!
+        """
+        self.show_popup("Ticket Impresso", ticket)
 
     def fechamento_caixa(self, instance):
         self.manager.current = "fechamento_screen"
+
+    def logout(self, instance):
+        try:
+            conn = sqlite3.connect('pdv_guarda_volumes.db')
+            cursor = conn.cursor()
+
+            # Calcular total de vendas do operador
+            cursor.execute("SELECT SUM(valor) FROM clientes WHERE operador=? AND data_entrada LIKE ?", 
+                           (self.operador, f"{datetime.now().strftime('%d/%m/%Y')}%"))
+            total_vendas = cursor.fetchone()[0] or 0.0
+
+            # Registrar log de operador
+            registrar_log_operador(
+                operador=self.operador,
+                horario_entrada=self.horario_login,
+                total_vendas=total_vendas,
+                horario_saida=datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            )
+
+            conn.close()
+
+            # Limpar dados do operador
+            self.operador = ""
+            self.horario_login = ""
+            self.manager.current = "login_screen"
+        except Exception as e:
+            self.show_popup("Erro", f"Erro ao realizar logout: {str(e)}")
 
     def show_popup(self, title, message):
         popup_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
@@ -520,11 +460,6 @@ class FechamentoScreen(Screen):
         self.resumo_label = Label(text="", font_size=18, size_hint_y=None, height=200)
         self.layout.add_widget(self.resumo_label)
 
-        # Botão Enviar Relatório
-        self.enviar_button = Button(text="Enviar Relatório por E-mail", size_hint_y=None, height=50)
-        self.enviar_button.bind(on_press=self.enviar_relatorio)
-        self.layout.add_widget(self.enviar_button)
-
         # Botão Voltar
         self.voltar_button = Button(text="Voltar ao PDV", size_hint_y=None, height=50)
         self.voltar_button.bind(on_press=self.voltar_pdv)
@@ -540,47 +475,25 @@ class FechamentoScreen(Screen):
         try:
             conn = sqlite3.connect('pdv_guarda_volumes.db')
             cursor = conn.cursor()
-            cursor.execute("SELECT SUM(valor) FROM clientes WHERE operador=?", (operador,))
-            total = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM clientes WHERE operador=?", (operador,))
+
+            # Total de vendas do operador no dia
+            cursor.execute("SELECT SUM(valor) FROM clientes WHERE operador=? AND data_entrada LIKE ?", 
+                           (operador, f"{datetime.now().strftime('%d/%m/%Y')}%"))
+            total = cursor.fetchone()[0] or 0.0
+
+            # Total de clientes atendidos pelo operador no dia
+            cursor.execute("SELECT COUNT(*) FROM clientes WHERE operador=? AND data_entrada LIKE ?", 
+                           (operador, f"{datetime.now().strftime('%d/%m/%Y')}%"))
             quantidade_clientes = cursor.fetchone()[0]
+
             conn.close()
 
             resumo = f"Operador: {operador}\n"
             resumo += f"Total de Clientes: {quantidade_clientes}\n"
-            resumo += f"Valor Total: R${total:.2f}" if total else "Valor Total: R$0.00"
+            resumo += f"Valor Total: R${total:.2f}"
             self.resumo_label.text = resumo
         except Exception as e:
             self.show_popup("Erro", f"Erro ao carregar resumo: {str(e)}")
-
-    def enviar_relatorio(self, instance):
-        operador = self.manager.get_screen("pdv_screen").operador
-
-        if not operador:
-            self.show_popup("Erro", "Operador não encontrado!")
-            return
-
-        try:
-            conn = sqlite3.connect('pdv_guarda_volumes.db')
-            cursor = conn.cursor()
-            cursor.execute("SELECT email FROM operadores WHERE nome=?", (operador,))
-            resultado = cursor.fetchone()
-            conn.close()
-
-            if not resultado or not resultado[0]:
-                self.show_popup("Erro", "E-mail do operador não encontrado!")
-                return
-
-            email_destino = resultado[0]
-            corpo_email = self.resumo_label.text
-            resultado_envio = enviar_email(email_destino, corpo_email)
-
-            if resultado_envio is True:
-                self.show_popup("Sucesso", "Relatório enviado com sucesso!")
-            else:
-                self.show_popup("Erro", resultado_envio)
-        except Exception as e:
-            self.show_popup("Erro", f"Erro inesperado: {str(e)}")
 
     def voltar_pdv(self, instance):
         self.manager.current = "pdv_screen"
@@ -601,6 +514,8 @@ class PDVApp(App):
     def build(self):
         setup_database()
         sm = ScreenManager()
+
+        # Adicionar telas ao gerenciador de telas
         sm.add_widget(LoginScreen(name="login_screen"))
         sm.add_widget(AdminLoginScreen(name="admin_login_screen"))
         sm.add_widget(AdminScreen(name="admin_screen"))
