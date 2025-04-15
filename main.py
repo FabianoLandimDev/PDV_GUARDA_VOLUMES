@@ -6,7 +6,7 @@ from kivy.uix.button import Button
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.popup import Popup
 from kivy.clock import Clock
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3
 
 # Configuração do Banco de Dados
@@ -319,6 +319,9 @@ class PDVScreen(Screen):
         self.botoes_layout.add_widget(self.cadastrar_button)
         self.botoes_layout.add_widget(self.limpar_button)
         self.botoes_layout.add_widget(self.imprimir_button)
+        self.verificar_prazo_button = Button(text="Verificar Prazo de Cliente", size_hint_y=None, height=50)
+        self.verificar_prazo_button.bind(on_press=self.go_to_verificar_prazo)
+        self.botoes_layout.add_widget(self.verificar_prazo_button)
         self.botoes_layout.add_widget(self.fechamento_caixa_button)
         self.botoes_layout.add_widget(self.logout_button)
         self.layout.add_widget(self.botoes_layout)
@@ -509,23 +512,115 @@ class FechamentoScreen(Screen):
         popup_button.bind(on_press=popup.dismiss)
         popup.open()
 
+# Função para calcular o valor total com base no tempo excedido
+def calcular_valor_excedente(data_entrada, valor_inicial):
+    try:
+        # Converter a data de entrada para um objeto datetime
+        data_entrada_obj = datetime.strptime(data_entrada, "%d/%m/%Y %H:%M:%S")
+        # Obter a data e hora atual
+        agora = datetime.now()
+        # Calcular a diferença entre a data atual e a data de entrada
+        diferenca = agora - data_entrada_obj
+
+        # Verificar se o cliente está dentro do prazo inicial de 12 horas
+        if diferenca <= timedelta(hours=12):
+            return valor_inicial  # Dentro do prazo, retorna o valor inicial
+
+        # Calcular o número de intervalos de 12 horas excedidos
+        horas_excedidas = diferenca.total_seconds() / 3600  # Total de horas excedidas
+        intervalos_excedidos = int(horas_excedidas // 12) + (1 if horas_excedidas % 12 != 0 else 0)
+
+        # Calcular o valor total
+        valor_total = valor_inicial * (intervalos_excedidos + 1)
+        return valor_total
+    except Exception as e:
+        print(f"Erro ao calcular valor excedente: {str(e)}")
+        return None
+
+# Tela de Verificação de Prazo
+class VerificarPrazoScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = BoxLayout(orientation='vertical', padding=50, spacing=10)
+        
+        # Título
+        self.title_label = Label(text="VERIFICAR PRAZO DE CLIENTE", font_size=24, size_hint_y=None, height=50)
+        self.layout.add_widget(self.title_label)
+        
+        # Campo ID do Cliente
+        self.id_cliente_input = TextInput(hint_text="ID do Cliente", multiline=False, size_hint_y=None, height=40)
+        self.layout.add_widget(self.id_cliente_input)
+        
+        # Botão de Verificação
+        self.verificar_button = Button(text="Verificar Prazo", size_hint_y=None, height=50)
+        self.verificar_button.bind(on_press=self.verificar_prazo)
+        self.layout.add_widget(self.verificar_button)
+        
+        # Resultado da Verificação
+        self.resultado_label = Label(text="", font_size=18, size_hint_y=None, height=100)
+        self.layout.add_widget(self.resultado_label)
+        
+        # Botão Voltar
+        self.voltar_button = Button(text="Voltar ao PDV", size_hint_y=None, height=50)
+        self.voltar_button.bind(on_press=self.voltar_pdv)
+        self.layout.add_widget(self.voltar_button)
+        
+        self.add_widget(self.layout)
+
+    def verificar_prazo(self, instance):
+        id_cliente = self.id_cliente_input.text.strip()
+        if not id_cliente.isdigit():
+            self.show_popup("Erro", "Insira um ID de cliente válido!")
+            return
+        
+        try:
+            conn = sqlite3.connect('pdv_guarda_volumes.db')
+            cursor = conn.cursor()
+            cursor.execute("SELECT data_entrada, valor FROM clientes WHERE id=?", (id_cliente,))
+            resultado = cursor.fetchone()
+            conn.close()
+            
+            if not resultado:
+                self.show_popup("Erro", "Cliente não encontrado!")
+                return
+            
+            data_entrada, valor_inicial = resultado
+            valor_total = calcular_valor_excedente(data_entrada, valor_inicial)
+            
+            if valor_total is None:
+                self.resultado_label.text = "Erro ao calcular o valor excedente."
+            elif valor_total == valor_inicial:
+                self.resultado_label.text = f"Cliente dentro do prazo. Valor a pagar: R${valor_total:.2f}"
+            else:
+                self.resultado_label.text = f"Cliente excedeu o prazo. Valor a pagar: R${valor_total:.2f}"
+        except Exception as e:
+            self.show_popup("Erro", f"Erro inesperado: {str(e)}")
+
+    def voltar_pdv(self, instance):
+        self.manager.current = "pdv_screen"
+
+    def show_popup(self, title, message):
+        popup_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        popup_label = Label(text=message, font_size=18)
+        popup_button = Button(text="OK", size_hint=(1, 0.5))
+        popup_layout.add_widget(popup_label)
+        popup_layout.add_widget(popup_button)
+        popup = Popup(title=title, content=popup_layout, size_hint=(0.8, 0.4))
+        popup_button.bind(on_press=popup.dismiss)
+        popup.open()
+
 # Gerenciador de Telas
 class PDVApp(App):
     def build(self):
         setup_database()
         sm = ScreenManager()
-
         # Adicionar telas ao gerenciador de telas
         sm.add_widget(LoginScreen(name="login_screen"))
         sm.add_widget(AdminLoginScreen(name="admin_login_screen"))
         sm.add_widget(AdminScreen(name="admin_screen"))
         sm.add_widget(PDVScreen(name="pdv_screen"))
         sm.add_widget(FechamentoScreen(name="fechamento_screen"))
-
-        # Inicializa a lista de operadores na tela de admin
-        admin_screen = sm.get_screen("admin_screen")
-        admin_screen.atualizar_lista_operadores()
-
+        sm.add_widget(VerificarPrazoScreen(name="verificar_prazo_screen"))
         return sm
 
 if __name__ == "__main__":
